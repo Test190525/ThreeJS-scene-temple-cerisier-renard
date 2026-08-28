@@ -1,8 +1,7 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useGLTF } from "@react-three/drei";
 
-// Composant pour un modèle statique (sans animation)
-// Props : url du fichier .glb, position, rotation (en radians) et scale dans la scène
+// Modèle statique chargé depuis un .glb
 export default function Model({
   url,
   position = [0, 0, 0],
@@ -11,11 +10,21 @@ export default function Model({
 }) {
   const { scene } = useGLTF(url);
 
-  // On clone la scène pour pouvoir afficher plusieurs fois le même modèle
-  // (sinon le même objet 3D ne peut pas être rendu à deux endroits)
+  // Clone mémoïsé (le même objet 3D ne peut pas être rendu deux fois), ombres activées
+  const model = useMemo(() => {
+    const clone = scene.clone();
+    clone.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    return clone;
+  }, [scene]);
+
   return (
     <primitive
-      object={scene.clone()}
+      object={model}
       position={position}
       rotation={rotation}
       scale={scale}

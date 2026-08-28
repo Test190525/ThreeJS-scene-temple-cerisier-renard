@@ -6,21 +6,15 @@ const LAMP_URL = "/model/stone-lamp.glb";
 
 useGLTF.preload(LAMP_URL);
 
-// --- Mesures relevées directement dans le .glb (accesseur POSITION) ---
-// Boîte englobante brute : X [-0.455, 0.468] / Y [-2.193, 0.844] / Z [-0.469, 0.424]
-// 1) Le pivot n'est PAS à la base : il faut remonter le modèle de 2.193
-//    pour que le socle repose exactement sur le sol (y = 0).
+// Relevé dans le .glb : le pivot n'est pas à la base, il faut remonter le modèle
 const BASE_OFFSET = 2.1929;
-// 2) La "chambre à feu" (hi-bukuro) est le prisme carré entre y = -0.06 et y = 0.41,
-//    de demi-largeur ~0.244 (coins à r = 0.345). Elle est FERMÉE : aucune ouverture,
-//    aucune face intérieure. Une lumière placée dedans serait donc invisible.
-//    => on plaque 4 "vitres" émissives juste devant ses 4 faces.
-const FIREBOX_Y = 0.175; // centre vertical de la chambre à feu
-const FIREBOX_HALF = 0.25; // demi-largeur des faces (0.244 + 0.006 de marge)
+// Chambre à feu (hi-bukuro), fermée dans le modèle : on plaque 4 vitres émissives devant
+const FIREBOX_Y = 0.175;
+const FIREBOX_HALF = 0.25;
 const WINDOW_W = 0.3;
 const WINDOW_H = 0.34;
 
-// Les 4 faces de la chambre à feu : décalage + rotation Y du plan
+// Les 4 faces de la chambre à feu
 const WINDOWS = [
   { position: [0, FIREBOX_Y, FIREBOX_HALF], rotation: [0, 0, 0] },
   { position: [0, FIREBOX_Y, -FIREBOX_HALF], rotation: [0, Math.PI, 0] },
@@ -28,12 +22,7 @@ const WINDOWS = [
   { position: [-FIREBOX_HALF, FIREBOX_Y, 0], rotation: [0, -Math.PI / 2, 0] },
 ];
 
-/**
- * Une lanterne de pierre allumée.
- * Le .glb ne fournit que la pierre (1 seul mesh, 1 seul matériau, emissive = 0) :
- * la flamme est entièrement ajoutée ici (vitres émissives + pointLight),
- * c'est ce qui permet au Bloom de l'accrocher.
- */
+// Lanterne de pierre : le .glb ne fournit que la pierre, la flamme est ajoutée ici
 export default function StoneLamp({
   position = [0, 0, 0],
   rotation = [0, 0, 0],
@@ -42,33 +31,40 @@ export default function StoneLamp({
   glow = 4.5, // > 1 : dépasse le seuil de luminance du Bloom
   lightIntensity = 7.5,
   flicker = false,
+  night, // ref : 0 en plein jour, 1 la nuit. Absent => toujours allumée
 }) {
   const { scene } = useGLTF(LAMP_URL);
-  // clone mémoïsé : sans useMemo, un nouveau clone serait créé à chaque rendu
-  const model = useMemo(() => scene.clone(), [scene]);
+  // Clone mémoïsé, avec les ombres activées sur la pierre
+  const model = useMemo(() => {
+    const clone = scene.clone();
+    clone.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    return clone;
+  }, [scene]);
 
   const lightRef = useRef();
   const matRefs = useRef([]);
 
-  // Le pointLight est hors du groupe mis à l'échelle : sinon son `distance`
-  // serait lui aussi multiplié par `scale` et l'éclairage changerait avec la taille.
+  // Hauteur de la flamme ; le pointLight reste hors du groupe mis à l'échelle
   const flameWorldY = (BASE_OFFSET + FIREBOX_Y) * scale;
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
-    // deux sinus non harmoniques => vacillement irrégulier, sans random par frame.
-    // f = 1 quand le vacillement est coupé, pour revenir exactement aux valeurs
-    // des props (sinon on resterait figé sur le dernier facteur appliqué).
+    // f : vacillement, deux sinus non harmoniques. n : montée à la tombée du jour
     const f = flicker ? 0.85 + 0.15 * Math.sin(t * 7.3) * Math.sin(t * 2.1) : 1;
-    if (lightRef.current) lightRef.current.intensity = lightIntensity * f;
+    const n = night ? night.current : 1;
+    if (lightRef.current) lightRef.current.intensity = lightIntensity * f * n;
     matRefs.current.forEach((m) => {
-      if (m) m.emissiveIntensity = glow * f;
+      if (m) m.emissiveIntensity = glow * f * n;
     });
   });
 
   return (
     <group position={position} rotation={rotation}>
-      {/* Tout ce qui suit le modèle est exprimé dans ses unités d'origine */}
       <group scale={scale} position={[0, BASE_OFFSET * scale, 0]}>
         <primitive object={model} />
 
@@ -81,15 +77,14 @@ export default function StoneLamp({
               color="#000000"
               emissive={color}
               emissiveIntensity={glow}
-              // indispensable : sans ça le tone mapping ramène la couleur
-              // sous 1 et le Bloom ne la détecte plus
+              // sans ça le tone mapping ramène la couleur sous le seuil du Bloom
               toneMapped={false}
             />
           </mesh>
         ))}
       </group>
 
-      {/* La vraie lumière projetée sur le sol et les modèles voisins */}
+      {/* La lumière projetée sur le sol et les modèles voisins */}
       <pointLight
         ref={lightRef}
         position={[0, flameWorldY, 0]}
