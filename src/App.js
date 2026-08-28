@@ -12,7 +12,6 @@ import { Leva, useControls, folder } from "leva";
 import Model from "./Model";
 import StoneLamp from "./StoneLamp";
 import Fox from "./Fox";
-import "./App.css";
 
 const FOX_URL = "/model/Fox.glb";
 const PAGODA_URL = "/model/Pagoda.glb";
